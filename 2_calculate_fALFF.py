@@ -17,18 +17,20 @@ from scipy import signal
 # %%
 # set path
 results_dir = '/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev'
-dataset = 'HCP-D'  # ['HCP-D', 'HCP-Adult']
+dataset = 'HCP-Adult'  # ['HCP-D', 'HCP-Adult']
 
 # set HCP data path
 if dataset == 'HCP-Adult':
     data_dir = '/nfs/m1/hcp'
     sublist = pd.read_csv(os.path.join(results_dir, 'sub_adult'), header=0, dtype={'Sub':np.str})
     rf_runlist = ['rfMRI_REST1_LR', 'rfMRI_REST1_RL', 'rfMRI_REST2_LR', 'rfMRI_REST2_RL']
+    rf_run_name = 'Atlas_MSMAll_hp2000_clean.dtseries.nii'
 elif dataset == 'HCP-D':
     data_dir = '/nfs/e1/HCPD/fmriresults01'
     sublist = pd.read_csv(os.path.join(results_dir, 'sub_dev'), header=0)
     sublist['Sub'] = sublist['Sub'] + '_V1_MR'
     rf_runlist = ['rfMRI_REST1_AP', 'rfMRI_REST1_PA', 'rfMRI_REST2_AP', 'rfMRI_REST2_PA']
+    rf_run_name = 'Atlas_MSMAll_hp0_clean.dtseries.nii'
 
 #%% get cerebellum mask
 atlas_dir = os.path.join(os.getcwd(), 'atlas')
@@ -74,7 +76,9 @@ value_roi = []
 sub_valid = []
 
 for sub in sublist['Sub']:
-    rf = [os.path.join(data_dir, sub, f'MNINonLinear/Results/{i}/{i}_Atlas_MSMAll_hp0_clean.dtseries.nii') for i in rf_runlist]       
+    
+    
+    rf = [os.path.join(data_dir, sub, f'MNINonLinear/Results/{i}/{i}_{rf_run_name}') for i in rf_runlist]       
     if np.asarray([os.path.exists(rf[i]) for i in range(len(rf))]).sum() != len(rf):
         pass
     else:
@@ -108,7 +112,7 @@ if dataset == 'HCP-Adult':
     value_mean = np.nan_to_num(value_mean)
         
     brain_models = cb_tools.CiftiReader(cb_mask_fslr_path).brain_models()
-    save_path_voxel_mean = save_path_voxel.replace('dscalar.nii', '_mean.dscalar.nii')
+    save_path_voxel_mean = save_path_voxel.replace('.dscalar.nii', '_mean.dscalar.nii')
     cb_tools.save2cifti(save_path_voxel_mean, value_mean[None,...], brain_models, volume=cb_tools.CiftiReader(cb_mask_fslr_path).volume)
 
     subprocess.check_output('wb_command -cifti-separate {0} COLUMN -volume-all {1}'.format(save_path_voxel_mean, save_path_voxel_mean.replace('.dscalar.nii', '_cbonly.nii.gz')), shell=True)    
