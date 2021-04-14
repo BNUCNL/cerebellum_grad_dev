@@ -33,16 +33,21 @@ num_str_col = 6
 # prepare roi data
 atlas_cb = {'t1wT2wRatio' : 'cb_anat_fsl', 'fALFF' : 'cb_anat_cifti'}
 atlas = cb_tools.atlas_load(atlas_cb[index], atlas_dir)
-data_roi = pd.read_csv(os.path.join(index_dir, '{0}_{1}.csv'.format(index, atlas_cb[index])))
+data_roi = pd.read_csv(os.path.join(index_dir, f'{index}_{atlas_cb[index]}.csv'))
 data_roi = data_roi.astype({'Sub': np.str})
 data_adult_roi = data_roi.merge(sub_adult, on='Sub', how='inner')
 data_dev_roi = data_roi.merge(sub_dev, on='Sub', how='inner')
 
 # prepare voxel data
-data_adult_voxel = nib.load(os.path.join(index_dir, 'HCP-Adult', '{0}_cb_voxel.nii.gz').format(index)).get_fdata()
-data_adult_voxel *= cb_mask
-data_dev_voxel = nib.load(os.path.join(index_dir, 'HCP-D', '{0}_cb_voxel.nii.gz').format(index)).get_fdata()
-data_dev_voxel *= cb_mask
+if index == 't1wT2wRatio':
+    data_adult_voxel = nib.load(os.path.join(index_dir, 'HCP-Adult', f'{index}_cb_voxel_mean.nii.gz')).get_fdata()
+    data_dev_voxel = nib.load(os.path.join(index_dir, 'HCP-D', f'{index}_cb_voxel.nii.gz')).get_fdata()
+elif index == 'fALFF':
+    data_adult_voxel = nib.load(os.path.join(index_dir, 'HCP-Adult', f'{index}_cb_voxel_mean_cbonly_onlylobues.nii.gz')).get_fdata()
+    data_dev_voxel = nib.load(os.path.join(index_dir, 'HCP-D', f'{index}_cb_voxel_cbonly.nii.gz')).get_fdata()
+    
+data_adult_voxel[~cb_mask] = 0
+data_dev_voxel[~cb_mask] = 0
 
 #
 palette_cb = sns.diverging_palette(230,230, l=80, center='dark', n=len(atlas.label_info['lobule'][:18:2]))
@@ -76,7 +81,11 @@ plt.tight_layout()
 data = copy.deepcopy(data_adult_voxel) 
 colormap = 'viridis'
 clip_pct = [0, 1] # thr by percentile
-vmin, vmax = 1.3, 1.8 # thr by absolute valus
+if index == 't1wT2wRatio':
+    vmin, vmax = 1.35, 1.75 # thr by absolute valus
+elif index == 'fALFF':
+    vmin, vmax = 0.105, 0.145
+    
 fig = plt.figure()
    
 location = cb_tools.select_surf(cb_mask * data, tolerance=0, linkage=[5,4,3,2,1])
@@ -117,19 +126,32 @@ lobues_name = atlas.label_info['lobule'][:18:2]
 
 # %% Fig 1/2 D
 # average gradient in children and adults groups
-dev_mean = np.nanmean(cb_tools.thr_IQR(dev.loc[:,dev.columns[:-num_str_col]].values, times=1.5, series=True), 0)
+dev_child = dev[dev['Age in years']<20]
+dev_mean = np.nanmean(cb_tools.thr_IQR(dev_child.loc[:,dev_child.columns[:-num_str_col]].values, times=1.5, series=True), 0)
 adult_mean = np.nanmean(cb_tools.thr_IQR(adult.loc[:,adult.columns[:-num_str_col]].values, times=1.5, series=True), 0)
 
-plt.plot(lobues_name, adult_mean, c='seagreen', label='adult')
+# quantratic fit
+x = np.arange(adult_mean.shape[0]) - (adult_mean.shape[0]-1)/2
+adult_coef = np.polyfit(x, adult_mean, deg=2)
+adult_y_fit = np.polyval(adult_coef, x)
+dev_coef = np.polyfit(x, dev_mean, deg=2)
+dev_y_fit = np.polyval(dev_coef, x)
+
+# plot
+plt.plot(lobues_name, adult_y_fit, c='seagreen', label='adult')
 plt.bar(lobues_name, adult_mean, color='seagreen', alpha=0.8)
-plt.plot(lobues_name, dev_mean, c='palegreen', ls='--', label='child')
+plt.plot(lobues_name, dev_y_fit, c='palegreen', ls='--', label='child')
 plt.bar(lobues_name, dev_mean, color='palegreen', alpha=0.5)
-plt.ylim([1.5,2.3])
+if index == 't1wT2wRatio':
+    plt.ylim([1.5, 2.3])
+elif index == 'fALFF':
+    plt.ylim([0.08, 0.16])
 plt.legend()
 
 # %% Fig 1/2 E, F
 # dev trojetory of curvature and extreme point
 
+# quantratic fit
 def gradient_magnitude(x):
     deg = 2
     polyfit = np.asarray([np.polyfit(np.arange(x.shape[-1]) - (x.shape[-1]-1)/2, 
@@ -159,7 +181,7 @@ plt.subplots_adjust(bottom=0.2, wspace=0.3)
 for i, yi in enumerate(y):
 
     sns.scatterplot(data[x]/12, data[yi], s=10, color='mediumaquamarine', ax=axes[i])
-    gam = LinearGAM(n_splines=5).gridsearch(data[x].values[...,None]/12, data[yi].values)
+    gam = LinearGAM(n_splines=20).gridsearch(data[x].values[...,None]/12, data[yi].values)
     xx = gam.generate_X_grid(term=0, n=500)
         
     axes[i].plot(xx, gam.predict(xx), '--', color='seagreen')
@@ -171,15 +193,15 @@ for i, yi in enumerate(y):
     axes[i].tick_params(colors='gray', which='both')
     [axes[i].spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
     
-    if yi == 'a':
-        axes[i].set_yticks(np.arange(0.02, 0.08, 0.02))
-    elif yi == 'p1':
-        axes[i].set_yticks([-1,0,1])
-        axes[i].set_yticklabels(['CrusI', 'CrusII', 'VIIb'])
-        axes[i].set_ylim([-1,1])    
+    # if yi == 'a':
+    #     axes[i].set_yticks(np.arange(0.02, 1, 0.02))
+    if yi == 'p1':
+        axes[i].set_yticks([-2, -1,0,1 ,2])
+        axes[i].set_yticklabels(['VI', 'CrusI', 'CrusII', 'VIIb', 'VIIIa'])
+        axes[i].set_ylim([-2,2])    
         axes[i].invert_yaxis()
 
-# %% Fig 1/2 G, H
+# %% Fig 1/2 G
 # dev trojetory for each lobule
 order = 1
 
@@ -195,12 +217,15 @@ _, ax = plt.subplots(figsize=[4,3])
 
 ax.set_xlim([7,23])
 ax.set_xticks(np.arange(8, 23, 2))
-ax.set_yticks(np.arange(1.6, 2.3, 0.2))
+if index == 't1wT2wRatio':
+    ax.set_yticks(np.arange(1.6, 2.3, 0.2))
+elif index == 'fALFF':
+    ax.set_yticks(np.arange(0.09, 0.17, 0.02))
 ax.tick_params(colors='gray', which='both')
 [ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
 plt.tight_layout()
 
-# %% Fig 1/2 H & I
+# %% Fig 1/2 H
 # k 
 data = copy.deepcopy(dev)
 data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values.T, times=1.5, series=True).T
@@ -218,24 +243,26 @@ polyfit_df = pd.DataFrame(polyfit, columns=['a','b'])
 k = polyfit_df['a']
 plt.bar(lobues_name, k, color=palette_cb)
 
-# hist map for each lobula
-if atlas_cb_name == 'cb_voxel':
-    if index == 'myelin':
-        # save nii
-        polyfit_img = np.zeros(cb_mask.shape)
-        polyfit_img[cb_mask] = polyfit_df['a'].values
-        save_path = os.path.join(index_dir, '{0}_cb_voxel_a_deg{1}.nii.gz'.format(index, order))
-        img = nib.Nifti1Image(polyfit_img, None)
-        nib.save(img, save_path)
-        subprocess.call('fslcpgeom {0} {1} -d'.format(cb_mask_mni_path, save_path), shell=True)
-        subprocess.call('flirt -in {0} -ref {1} -out {2}'.format(save_path, suit_path, save_path.split('.', 1)[0]+'_suit.nii.gz'), shell=True)
-    #        subprocess.call('fslmaths {0}_suit.nii.gz -mas {1} {0}_suit_mask.nii.gz'.format(save_path.split('.', 1)[0], suit_path), shell=True)
-        
-    elif index == 'fALFF':
-        # save nii
-        brain_models = mytool.mri.CiftiReader(cb_mask_fslr_path).brain_models()   
-        polyfit_img = polyfit_df['a'].values
-        save_path = os.path.join(index_dir, '{0}_cb_voxel_a_deg{1}.dscalar.nii'.format(index, order))
-        mytool.mri.save2cifti(save_path, polyfit_img[None,...], brain_models, volume=mytool.mri.CiftiReader(cb_mask_fslr_path).volume)
-        subprocess.check_output('wb_command -cifti-separate {0} COLUMN -volume-all {1}_cbonly.nii.gz'.format(save_path, save_path.split('.')[0]), shell=True)
-        subprocess.call('flirt -in {0}_cbonly.nii.gz -ref {1} -out {0}_cbonly_suit.nii.gz'.format(save_path.split('.')[0], suit_path), shell=True)
+# %% Fig 1/2 I
+# save nifti files, plot by SUIT in matlab
+if index == 't1wT2wRatio':
+    # save nii
+    polyfit_img = np.zeros(cb_mask.shape)
+    polyfit_img[cb_mask] = polyfit_df['a'].values
+    save_path = os.path.join(index_dir, f'{index}_cb_voxel_dev_k.nii.gz')
+    img = nib.Nifti1Image(polyfit_img, None)
+    nib.save(img, save_path)
+    subprocess.call(f'fslcpgeom {cb_mask_mni_path} {save_path} -d', shell=True)
+    
+elif index == 'fALFF':
+    # save nii
+    brain_models = mytool.mri.CiftiReader(cb_mask_fslr_path).brain_models()   
+    polyfit_img = polyfit_df['a'].values
+    save_path = os.path.join(index_dir, '{0}_cb_voxel_a_deg{1}.dscalar.nii'.format(index, order))
+    mytool.mri.save2cifti(save_path, polyfit_img[None,...], brain_models, volume=mytool.mri.CiftiReader(cb_mask_fslr_path).volume)
+    subprocess.check_output('wb_command -cifti-separate {0} COLUMN -volume-all {1}_cbonly.nii.gz'.format(save_path, save_path.split('.')[0]), shell=True)
+    subprocess.call('flirt -in {0}_cbonly.nii.gz -ref {1} -out {0}_cbonly_suit.nii.gz'.format(save_path.split('.')[0], suit_path), shell=True)
+
+# =======================
+# plot by suit in matlab
+# =======================
