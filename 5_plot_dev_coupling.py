@@ -14,18 +14,16 @@ from pygam import LinearGAM
 # set results path
 results_dir = '/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev'
 
+# %%
 # prepare roi data
 data_t1wT2wRatio = pd.read_csv(os.path.join(results_dir, 't1wT2wRatio', 't1wT2wRatio_cb_anat_fsl.csv'))
 data_falff = pd.read_csv(os.path.join(results_dir, 'fALFF', 'fALFF_cb_anat_cifti.csv'))
 
-#%% anat func coup
-thr_iqr = 1.5
-num_str_col = 6
-
-palette_cb = sns.diverging_palette(230,230, l=80, center='dark', n=9)
-
 atlas_dir = os.path.join(os.getcwd(), 'atlas')
 atlas = cb_tools.atlas_load('cb_anat_fsl', atlas_dir)
+
+num_str_col = 6
+palette_cb = sns.diverging_palette(230,230, l=80, center='dark', n=9)
 
 # %%
 def hemi_merging(x, num_str_col):
@@ -83,10 +81,9 @@ def isfc(data1, data2):
     corr = np.nan_to_num(1 - cdist(data1, data2, metric='correlation'))
     return corr
 
-
+# %% plot Fig 3A
 dev_coup = isfc(data_t1wT2wRatio_coup.iloc[:,:-num_str_col].values.T,
                 data_falff_coup.iloc[:,:-num_str_col].values.T)
-# %% plot Fig 3A
 # isc
 isc_df = pd.DataFrame(np.c_[np.diag(dev_coup) , data_falff_coup.columns[:-num_str_col]], columns=['coup', 'roi']) 
 fig, ax = plt.subplots(figsize=(3.5, 4.5))
@@ -120,3 +117,5 @@ for i, ax in enumerate(axes.flat[:r2.shape[0]]):
     ax.tick_params(axis='y', colors='gray', labelsize=10)
     ax.grid(color='lightgray')
     ax.set_title(data_falff_coup.columns[i], fontweight='bold')
+
+plt.tight_layout()

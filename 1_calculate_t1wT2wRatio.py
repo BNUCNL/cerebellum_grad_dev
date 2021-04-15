@@ -19,7 +19,7 @@ import cb_tools
 results_dir = '/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev'
 dataset = 'HCP-Adult'  # ['HCP-D', 'HCP-Adult']
 
-temp_data_dir = f'/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev/myelin/{dataset}/t1w_t2w'
+temp_data_dir = f'/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev/temp/{dataset}/t1w_t2w'
 if os.path.exists(temp_data_dir) is False: os.makedirs(temp_data_dir)
 
 # set HCP data path

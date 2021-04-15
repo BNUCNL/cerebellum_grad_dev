@@ -14,7 +14,7 @@ import cb_tools
 
 # %%
 results_dir = '/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev'
-index = 'fALFF' # ['t1wT2wRatio', 'fALFF']
+index = 't1wT2wRatio' # ['t1wT2wRatio', 'fALFF']
 
 dataset = ['HCP-D', 'HCP-Adult']
 
@@ -53,24 +53,24 @@ for ds in dataset:
     sub_info = pd.read_table(sub_info_path, sep='\t', dtype={'Sub':np.str})
     sub_info = result_sub.merge(sub_info, on='Sub', how='left')
     
-    # only lobes
+    # roi data
+    # only lobules
     data_roi = data_roi[:, :19]
     atlas.label_info = atlas.label_info[:19]
-    
     # convert to df
-    data_voxel_df = pd.DataFrame(data_voxel)
     data_roi_df = pd.DataFrame(data_roi, columns=atlas.label_info['name']).astype(np.float)
-    
-    # data_df = data_df.apply(lambda x: x.fillna(x.mean()), axis=0) 
-    data_voxel_df = pd.concat([data_voxel_df, sub_info], axis=1)
     data_roi_df = pd.concat([data_roi_df, sub_info], axis=1)
-    
     # retain lobule 1-9 for roi data
     col = [col for col in data_roi_df.columns[:-num_str_col] if col.split('_')[0] == 'X' ]
     data_roi_df.drop(columns=col, inplace=True)
     
     data_roi_ds.append(data_roi_df)
-    data_voxel_ds.append(data_voxel_df)
+    
+    # voxel data
+    if ds == 'HCP-D':
+        data_voxel_df = pd.DataFrame(data_voxel)
+        data_voxel_df = pd.concat([data_voxel_df, sub_info], axis=1)
+        data_voxel_ds.append(data_voxel_df)
 
 # %% save
 data_roi_all = pd.concat((data_roi_ds[i] for i in range(len(data_roi_ds))), axis=0)

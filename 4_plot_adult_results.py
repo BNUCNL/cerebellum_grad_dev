@@ -9,16 +9,18 @@ import seaborn as sns
 import copy
 import cb_tools
 from pygam import LinearGAM
+import subprocess
 
 # %%
 # set results path
 results_dir = '/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev'
-index = 'fALFF'  # ['t1wT2wRatio', 'fALFF']
+index = 't1wT2wRatio'  # ['t1wT2wRatio', 'fALFF']
 
 #%% get cerebellum mask
 atlas_dir = os.path.join(os.getcwd(), 'atlas')
 atlas_mni_path = os.path.join(atlas_dir, 'MNI152_T1_2mm_brain.nii.gz')
 cb_mask_mni_path = os.path.join(atlas_dir,'Cerebellum-MNIfnirt-maxprob-thr25.nii')
+cb_mask_fslr_path = os.path.join(atlas_dir,  'Cerebellum-MNIfnirt-maxprob-thr25.dscalar.nii')
 
 cb_mask = nib.load(cb_mask_mni_path).get_fdata()
 cb_mask[cb_mask!=0] = 1
@@ -41,13 +43,11 @@ data_dev_roi = data_roi.merge(sub_dev, on='Sub', how='inner')
 # prepare voxel data
 if index == 't1wT2wRatio':
     data_adult_voxel = nib.load(os.path.join(index_dir, 'HCP-Adult', f'{index}_cb_voxel_mean.nii.gz')).get_fdata()
-    data_dev_voxel = nib.load(os.path.join(index_dir, 'HCP-D', f'{index}_cb_voxel.nii.gz')).get_fdata()
 elif index == 'fALFF':
     data_adult_voxel = nib.load(os.path.join(index_dir, 'HCP-Adult', f'{index}_cb_voxel_mean_cbonly_onlylobues.nii.gz')).get_fdata()
-    data_dev_voxel = nib.load(os.path.join(index_dir, 'HCP-D', f'{index}_cb_voxel_cbonly.nii.gz')).get_fdata()
-    
+data_dev_voxel = pd.read_csv(os.path.join(index_dir, f'{index}_cb_voxel.csv'))
+
 data_adult_voxel[~cb_mask] = 0
-data_dev_voxel[~cb_mask] = 0
 
 #
 palette_cb = sns.diverging_palette(230,230, l=80, center='dark', n=len(atlas.label_info['lobule'][:18:2]))
@@ -153,19 +153,15 @@ plt.legend()
 
 # quantratic fit
 def gradient_magnitude(x):
-    deg = 2
     polyfit = np.asarray([np.polyfit(np.arange(x.shape[-1]) - (x.shape[-1]-1)/2, 
-                                     x.iloc[i, :].to_numpy(dtype=float), deg=deg) for i in range(x.shape[0])])
+                                     x.iloc[i, :].to_numpy(dtype=float), deg=2) for i in range(x.shape[0])])
     polyfit_df = pd.DataFrame(polyfit, columns=['a','b','c'])
     polyfit_df['p1'] = -polyfit_df['b']/(2*polyfit_df['a'])
     
     return polyfit_df
 
 # get curvature and extreme point
-deg = 2
 data = copy.deepcopy(dev)
-x = 'Age in months'
-y = ['a', 'p1']
 
 shape = gradient_magnitude(data.iloc[:,:-num_str_col])
 shape = pd.concat((shape, data.iloc[:,-num_str_col:]), axis=1)
@@ -176,6 +172,8 @@ data.dropna(inplace=True)
 data_g = data.groupby(['Age in years']).mean().loc[:, data.columns[:-num_str_col]]
 
 # plot dev trajactory
+x = 'Age in months'
+y = ['a', 'p1']
 _, axes = plt.subplots(nrows=1, ncols=2, figsize=[8,3.3])  
 plt.subplots_adjust(bottom=0.2, wspace=0.3)
 for i, yi in enumerate(y):
@@ -227,28 +225,36 @@ plt.tight_layout()
 
 # %% Fig 1/2 H
 # k 
+def fit_k(data, num_str_col):
+    
+    data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values.T, times=1.5, series=True).T
+    nan_voxel = np.isnan(data[data.columns[:-num_str_col]]).sum(0)>len(data)*0.5
+    data.loc[:, np.r_[nan_voxel, np.zeros(num_str_col).astype(np.bool)]] = 0
+    
+    x = 'Age in months'
+    y = data.columns[:-num_str_col]
+    
+    order = 1
+    polyfit = np.asarray([np.polyfit(data.loc[~np.isnan(data[y_i]), x] / 12, data.loc[~np.isnan(data[y_i]), y_i], deg=order) for y_i in y])
+    polyfit[np.isnan(data[data.columns[:-num_str_col]].values).sum(0)>0.3*(len(data)-num_str_col)] = np.nan
+    polyfit_df = pd.DataFrame(polyfit, columns=['k','b'])
+    
+    return polyfit_df
+    
 data = copy.deepcopy(dev)
-data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values.T, times=1.5, series=True).T
-nan_voxel = np.isnan(data[data.columns[:-num_str_col]]).sum(0)>len(data)*0.5
-data.loc[:, np.r_[nan_voxel, np.zeros(num_str_col).astype(np.bool)]] = 0
-
-x = 'Age in months'
-y = data.columns[:-num_str_col]
-
-order = 1
-polyfit = np.asarray([np.polyfit(data.loc[~np.isnan(data[y_i]), x] / 12, data.loc[~np.isnan(data[y_i]), y_i], deg=order) for y_i in y])
-polyfit[np.isnan(data[data.columns[:-num_str_col]].values).sum(0)>0.3*(len(data)-num_str_col)] = np.nan
-polyfit_df = pd.DataFrame(polyfit, columns=['a','b'])
-
-k = polyfit_df['a']
+k = fit_k(data, num_str_col)['k']
 plt.bar(lobues_name, k, color=palette_cb)
 
 # %% Fig 1/2 I
 # save nifti files, plot by SUIT in matlab
+data = copy.deepcopy(data_dev_voxel)
+k = fit_k(data, num_str_col)['k']
+
 if index == 't1wT2wRatio':
     # save nii
     polyfit_img = np.zeros(cb_mask.shape)
-    polyfit_img[cb_mask] = polyfit_df['a'].values
+    polyfit_img[cb_mask] = k
+    
     save_path = os.path.join(index_dir, f'{index}_cb_voxel_dev_k.nii.gz')
     img = nib.Nifti1Image(polyfit_img, None)
     nib.save(img, save_path)
@@ -256,12 +262,11 @@ if index == 't1wT2wRatio':
     
 elif index == 'fALFF':
     # save nii
-    brain_models = mytool.mri.CiftiReader(cb_mask_fslr_path).brain_models()   
-    polyfit_img = polyfit_df['a'].values
-    save_path = os.path.join(index_dir, '{0}_cb_voxel_a_deg{1}.dscalar.nii'.format(index, order))
-    mytool.mri.save2cifti(save_path, polyfit_img[None,...], brain_models, volume=mytool.mri.CiftiReader(cb_mask_fslr_path).volume)
-    subprocess.check_output('wb_command -cifti-separate {0} COLUMN -volume-all {1}_cbonly.nii.gz'.format(save_path, save_path.split('.')[0]), shell=True)
-    subprocess.call('flirt -in {0}_cbonly.nii.gz -ref {1} -out {0}_cbonly_suit.nii.gz'.format(save_path.split('.')[0], suit_path), shell=True)
+    brain_models = cb_tools.CiftiReader(cb_mask_fslr_path).brain_models()   
+    polyfit_img = k
+    save_path = os.path.join(index_dir, f'{index}_cb_voxel_dev_k.dscalar.nii')
+    cb_tools.save2cifti(save_path, polyfit_img[None,...], brain_models, volume=cb_tools.CiftiReader(cb_mask_fslr_path).volume)
+    subprocess.check_output('wb_command -cifti-separate {0}.dscalar.nii COLUMN -volume-all {0}.nii.gz'.format(save_path.split('.')[0]), shell=True)
 
 # =======================
 # plot by suit in matlab
