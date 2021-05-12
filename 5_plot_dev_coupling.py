@@ -9,6 +9,7 @@ import seaborn as sns
 import copy
 import cb_tools
 from pygam import LinearGAM
+from scipy import stats
 
 # %%
 # set results path
@@ -49,10 +50,81 @@ def inner_sub(dataframe_list):
     return list(sub)       
     
 #sub = inner_sub([data_ml, data_alff, sub_adult])
-sub = inner_sub([data_t1wT2wRatio.query('`Age in years` < 20'), data_falff.query('`Age in years` < 20')])
+sub = inner_sub([data_t1wT2wRatio.query('`Age in years` < 22'), data_falff.query('`Age in years` < 22')])
 sub_df = pd.DataFrame(sub, columns=['Sub'])
 data_t1wT2wRatio_coup = data_t1wT2wRatio.merge(sub_df, on='Sub', how='inner')
 data_falff_coup = data_falff.merge(sub_df, on='Sub', how='inner')
+
+# %%
+def isc(data1, data2=None):
+
+    """calculate inter-subject correlation along the determined axis.
+
+    Parameters
+    ----------
+
+        data1: used to calculate functional connectivity,
+            shape = [n_samples, n_features].
+        data2: used to calculate functional connectivity,
+            shape = [n_samples, n_features].
+
+    Returns
+    -------
+        isc: point-to-point functional connectivity list of
+            data1 and data2, shape = [n_samples, ].
+
+    Notes
+    -----
+        1. data1 and data2 should both be 2-dimensional.
+        2. [n_samples, n_features] should be the same in data1 and data2.
+
+    """
+
+    if data2 is None:
+        data2 = data1
+    data1 = np.nan_to_num(data1)
+    data2 = np.nan_to_num(data2)
+
+    z_data1 = np.nan_to_num(stats.zscore(data1, axis=-1))
+    z_data2 = np.nan_to_num(stats.zscore(data2, axis=-1))
+    corr = np.sum(z_data1*z_data2, axis=-1)/(np.size(data1, -1))
+
+    return corr
+
+# %% plot development of gradient coupling 
+coup = isc(data_t1wT2wRatio_coup.iloc[:,:-num_str_col], data_falff_coup.iloc[:,:-num_str_col])
+coup = pd.DataFrame(coup, columns=['coup'])
+coup = pd.concat((coup, data_t1wT2wRatio_coup.iloc[:,-num_str_col:]), axis=1)
+
+# threshold by 1.5 IQR
+data = copy.deepcopy(coup)
+data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values, times=3, series=True) # remove outliers
+data.dropna(inplace=True)
+data_g = data.groupby(['Age in years']).mean().loc[:, data.columns[:-num_str_col]]
+
+# plot dev trajactory
+x = 'Age in months'
+y = 'coup'
+_, ax = plt.subplots(nrows=1, ncols=1, figsize=[5,3.3])  
+
+sns.scatterplot(data[x]/12, data[y], s=10, color='mediumaquamarine', ax=ax)
+gam = LinearGAM(n_splines=20).gridsearch(data[x].values[...,None]/12, data[y].values)
+xx = gam.generate_X_grid(term=0, n=500)
+    
+print(gam.summary())
+        
+ax.plot(xx, gam.predict(xx), '--', color='seagreen')
+ax.plot(xx, gam.prediction_intervals(xx, width=.95), color='mediumaquamarine', ls='--', alpha=0.5)
+ax.scatter(data_g.index, data_g[y], c='seagreen', s=15, marker='D')
+    
+ax.set_xticks(np.arange(8, 23, 2))
+ax.set_xlim([7,22])
+ax.set_xlabel('Age in years')
+ax.set_ylabel('corr coef')
+ax.tick_params(colors='gray', which='both')
+[ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
+    
+plt.tight_layout()
 
 # %%
 def isfc(data1, data2):
@@ -93,12 +165,12 @@ ax.tick_params(colors='gray', which='both')
 [ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
 plt.tight_layout()
 
-# %%
+# %% plot Fig 3B
 # isfc
 r2 = dev_coup ** 2
 
 fig, axes = plt.subplots(nrows=2,ncols=np.int(np.ceil(r2.shape[0]/2)), 
-                         sharey=True, subplot_kw={'projection':'polar'})
+                         sharey=True, subplot_kw={'projection':'polar'}, figsize=[15,8])
 angles = [i / r2.shape[0] *2*np.pi + 2*np.pi/r2.shape[0]*0.5 for i in range(r2.shape[0])] 
 angles += angles[:1]
 
@@ -112,8 +184,8 @@ for i, ax in enumerate(axes.flat[:r2.shape[0]]):
     ax.set_xticks(angles)
     ax.set_xticklabels(np.r_[data_falff_coup.columns[:-num_str_col].values, np.asarray(data_falff_coup.columns[0])],
                               fontsize=10)
-    ax.set_yticks(np.arange(0, 0.09, 0.04))
-    ax.set_ylim([0, 0.08])
+    ax.set_yticks(np.arange(0, 0.07, 0.03))
+    ax.set_ylim([0, 0.07])
     ax.tick_params(axis='y', colors='gray', labelsize=10)
     ax.grid(color='lightgray')
     ax.set_title(data_falff_coup.columns[i], fontweight='bold')

@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import copy
 import cb_tools
-import heritability
 
 # %%
 # set results path
@@ -72,72 +71,30 @@ mz_func, dz_func = twins_select(data_falff, dem_herit, num_str_col)
 
 #%%
 # plot
-_, h2_anat = heritability.heritability(mz_anat, dz_anat, n_bootstrap=1000, confidence=95)
-h2_anat_df = pd.DataFrame(h2_anat, columns=atlas.label_info['lobule'][:18:2].values)
+bound_anat, h2_anat = cb_tools.heritability(mz_anat, dz_anat, n_permutation=1000, confidence=[95])
+h2_anat_df = pd.DataFrame(h2_anat[None,...], columns=atlas.label_info['lobule'][:18:2].values)
 h2_anat_df = h2_anat_df.stack().reset_index(-1, name='h2')
 
-_, h2_func = heritability.heritability(mz_func, dz_func, n_bootstrap=1000, confidence=95)
-h2_func_df = pd.DataFrame(h2_func, columns=atlas.label_info['lobule'][:18:2].values)
+bound_func, h2_func = cb_tools.heritability(mz_func, dz_func, n_permutation=1000, confidence=[95])
+h2_func_df = pd.DataFrame(h2_func[None,...], columns=atlas.label_info['lobule'][:18:2].values)
 h2_func_df = h2_func_df.stack().reset_index(-1, name='h2')
 
 h2_df = [h2_anat_df, h2_func_df]
+
+# sig
+sig_anat = np.array(['n.a.']*h2_anat.shape[0])
+sig_anat[(h2_anat-bound_anat[95]) >= 0] = '*'
+
+sig_func = np.array(['n.a.']*h2_func.shape[0])
+sig_func[(h2_func-bound_func[95]) >= 0] = '*'
+
+# plot
 fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(5, 3.3))
 for i in range(2):
     sns.barplot(x='h2', y='level_1', ci=None, palette=palette_cb, data=h2_df[i], ax=axes.flatten()[i])
-    axes.flatten()[i].set_xlim([0,0.7])
-    
+    axes[i].set_xlim([0,0.7])
+    axes[i].set_ylabel(None)
     axes[i].tick_params(colors='gray', which='both')
 #
     [axes[i].spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
 plt.tight_layout()
-
-#%% grad
-shape = polyfit_dataframing(gradient_magnitude(data_herit.iloc[:,:-num_str_col]), deg=2)
-data_herit['a_ml'] = mytool.core.thr_IQR(shape['a'].values, times=3, series=False)
-data_herit['p1_ml'] = mytool.core.thr_IQR(shape['p1'].values, times=3, series=False)
-
-mz, dz = organize_herit_data(data_herit.iloc[:, -2:], dem_herit)
-h2, _ = mytool.heritability.heritability(mz, dz, n_bootstrap=1000, confidence=95)
-
-elif atlas_cb_name == 'cb_voxel':
-    h2 = mytool.heritability.heritability(mz, dz, n_bootstrap=None, confidence=95)
-    if index == 'myelin':
-        # save nii
-        img_data = np.zeros(cb_mask.shape)
-        img_data[cb_mask] = h2
-        save_path = os.path.join(index_dir, '{0}_cb_voxel_-_h2.nii.gz'.format(index))
-        img = nib.Nifti1Image(img_data, None)
-        nib.save(img, save_path)
-        subprocess.call('fslcpgeom {0} {1} -d'.format(cb_mask_mni_path, save_path), shell=True)
-        subprocess.call('flirt -in {0} -ref {1} -out {2}'.format(save_path, suit_path, save_path.split('.', 1)[0]+'_suit.nii.gz'), shell=True)
-    #        subprocess.call('fslmaths {0}_suit.nii.gz -mas {1} {0}_suit_mask.nii.gz'.format(save_path.split('.', 1)[0], suit_path), shell=True)
-        
-    elif index == 'fALFF':
-        # save nii
-        brain_models = mytool.mri.CiftiReader(cb_mask_fslr_path).brain_models()   
-        img_data = h2
-        save_path = os.path.join(index_dir, '{0}_cb_voxel_-_h2.dscalar.nii'.format(index))
-        mytool.mri.save2cifti(save_path, img_data[None,...], brain_models, volume=mytool.mri.CiftiReader(cb_mask_fslr_path).volume)
-        subprocess.check_output('wb_command -cifti-separate {0} COLUMN -volume-all {1}_cbonly.nii.gz'.format(save_path, save_path.split('.')[0]), shell=True)
-        subprocess.call('flirt -in {0}_cbonly.nii.gz -ref {1} -out {0}_cbonly_suit.nii.gz'.format(save_path.split('.')[0], suit_path), shell=True)
-
-
-elif atlas_cc_name == 'cc_voxel':
-    h2 = mytool.heritability.heritability(mz, dz, n_bootstrap=None, confidence=95)
-    # save cifti
-    brain_models = mytool.mri.CiftiReader(cc_mask_fslr_path).brain_models()        
-    img_data = h2       
-    save_path = os.path.join(index_dir, '{0}_-_cc_voxel_h2.dscalar.nii'.format(index))
-    mytool.mri.save2cifti(save_path, img_data[None,...], brain_models)
-
-elif atlas_cc_name == 'cc_msm':
-    h2,_ = mytool.heritability.heritability(mz, dz, n_bootstrap=100, confidence=95)
-    h2 = h2[0,:]
-    # save cifti
-    atlas = atlas_load('cc_msm')
-    msm_a = np.zeros((1, atlas.data.shape[0]))
-    for key in atlas.label_info['key'].astype(np.int):
-        msm_a[0,atlas.data==key] = h2[key-1]    
-    brain_models = mytool.mri.CiftiReader(cc_mask_fslr_path).brain_models()
-    save_path = os.path.join(index_dir, '{0}_-_cc_msm_h2.dscalar.nii'.format(index))
-    mytool.mri.save2cifti(save_path, msm_a, brain_models)

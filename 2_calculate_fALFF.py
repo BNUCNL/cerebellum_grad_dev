@@ -17,7 +17,7 @@ from scipy import signal
 # %%
 # set path
 results_dir = '/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev'
-dataset = 'HCP-Adult'  # ['HCP-D', 'HCP-Adult']
+dataset = 'HCP-D'  # ['HCP-D', 'HCP-Adult']
 
 # set HCP data path
 if dataset == 'HCP-Adult':
@@ -25,12 +25,14 @@ if dataset == 'HCP-Adult':
     sublist = pd.read_csv(os.path.join(results_dir, 'sub_adult'), header=0, dtype={'Sub':np.str})
     rf_runlist = ['rfMRI_REST1_LR', 'rfMRI_REST1_RL', 'rfMRI_REST2_LR', 'rfMRI_REST2_RL']
     rf_run_name = 'Atlas_MSMAll_hp2000_clean.dtseries.nii'
+    tr = 0.72
 elif dataset == 'HCP-D':
     data_dir = '/nfs/e1/HCPD/fmriresults01'
     sublist = pd.read_csv(os.path.join(results_dir, 'sub_dev'), header=0)
     sublist['Sub'] = sublist['Sub'] + '_V1_MR'
     rf_runlist = ['rfMRI_REST1_AP', 'rfMRI_REST1_PA', 'rfMRI_REST2_AP', 'rfMRI_REST2_PA']
     rf_run_name = 'Atlas_MSMAll_hp0_clean.dtseries.nii'
+    tr = 0.8
 
 #%% get cerebellum mask
 atlas_dir = os.path.join(os.getcwd(), 'atlas')
@@ -77,7 +79,6 @@ sub_valid = []
 
 for sub in sublist['Sub']:
     
-    
     rf = [os.path.join(data_dir, sub, f'MNINonLinear/Results/{i}/{i}_{rf_run_name}') for i in rf_runlist]       
     if np.asarray([os.path.exists(rf[i]) for i in range(len(rf))]).sum() != len(rf):
         pass
@@ -88,7 +89,8 @@ for sub in sublist['Sub']:
             subprocess.call(f'wb_command -cifti-create-dense-from-template {cb_mask_fslr_path} {results_dir}/cbonly_temp.dtseries.nii -cifti {rf_path}', shell=True)          
             rf_data = cb_tools.CiftiReader(f'{results_dir}/cbonly_temp.dtseries.nii').get_data()
 
-            falff = fALFF(rf_data.T, fs=1/0.72)          
+            falff = fALFF(rf_data.T, fs=1/tr)
+            
             # thr 1.5 IQR
             falff = cb_tools.thr_IQR(falff, times=1.5)
             

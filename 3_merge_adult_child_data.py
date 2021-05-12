@@ -14,7 +14,7 @@ import cb_tools
 
 # %%
 results_dir = '/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev'
-index = 't1wT2wRatio' # ['t1wT2wRatio', 'fALFF']
+index = 'fALFF' # ['t1wT2wRatio', 'fALFF']
 
 dataset = ['HCP-D', 'HCP-Adult']
 

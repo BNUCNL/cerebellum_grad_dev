@@ -284,22 +284,31 @@ class Atlas:
 #%% altas load
 def atlas_load(atlas_name, atlas_dir):
     
-    if atlas_name == 'cb_anat_fsl':
-        atlas_data = nib.load(os.path.join(
-                atlas_dir,'Cerebellum-MNIfnirt-maxprob-thr25.nii')).get_fdata()
+    if atlas_name in ['cb_anat_fsl', 'cb_anat_cifti']:
+        if atlas_name == 'cb_anat_fsl':
+            atlas_data = nib.load(os.path.join(
+                    atlas_dir,'Cerebellum-MNIfnirt-maxprob-thr25.nii')).get_fdata()
+    
+        elif atlas_name == 'cb_anat_cifti':
+            atlas_data = CiftiReader(os.path.join(
+                     atlas_dir, 'Cerebellum-MNIfnirt-maxprob-thr25.dscalar.nii')).get_data()[0,:]
+       
+        atlas_info = pd.read_table(os.path.join(atlas_dir, 'Cerebellum-MNIfnirt.txt'), 
+                                           sep='\t', header=None)
+        atlas_info.columns = ['key','name','lobule','hemi', 'landmark']
+        atlas_info['landmark'] = atlas_info['landmark'].apply(lambda x: np.array(eval(x)))
+        atlas = Atlas(data=atlas_data, label_info=atlas_info)
 
-    elif atlas_name == 'cb_anat_cifti':
+    elif atlas_name == 'cc_msm':
         atlas_data = CiftiReader(os.path.join(
-                 atlas_dir, 'Cerebellum-MNIfnirt-maxprob-thr25.dscalar.nii')).get_data()[0,:]
-   
-    atlas_info = pd.read_table(os.path.join(atlas_dir, 'Cerebellum-MNIfnirt.txt'), 
-                                       sep='\t', header=None)
-    atlas_info.columns = ['key','name','lobule','hemi', 'landmark']
-    atlas_info['landmark'] = atlas_info['landmark'].apply(lambda x: np.array(eval(x)))
-    atlas = Atlas(data=atlas_data, label_info=atlas_info)
+            atlas_dir, 'MMP_mpmLR32k.dlabel.nii'))
+        atlas_info = pd.read_table(os.path.join(atlas_dir, 'MMP_mpmLR32k.txt'), 
+                                           sep='\t', header=0)
+        color = atlas_info['color'].str.split().values
+        atlas_info['color'] = [np.asarray(color[i], dtype=np.int) for i in range(len(color))]
+        atlas = Atlas(data=atlas_data.get_data()[0,:], label_info=atlas_info[['key','name','hemi','roi','color', 'rs_network']])
 
     return atlas
-
 
 #%% only render surface for visualization
 def select_surf(data, tolerance=0, linkage=None):
@@ -407,3 +416,223 @@ def roiing_volume(roi_annot, data, method='nanmean', key=None):
     
     roi_data = np.asarray(roi_data)
     return roi_key, roi_data
+
+
+
+
+#%% heritability
+
+def get_twins_id(src_file, trg_file=None):
+    """
+    Get twins ID according to 'ZygosityGT' and pair the twins according to
+    'Family_ID' from HCP restricted information.
+    Parameters
+    ----------
+    src_file : str
+        HCP restricted information file (CSV format)
+    trg_file : str
+        If is not None, save twins ID information to a file (CSV format)
+    Returns
+    -------
+    df_out : DataFrame
+        twins ID information
+    """
+    assert src_file.endswith('.csv')
+    zygosity = ('MZ', 'DZ')
+    df_in = pd.read_csv(src_file)
+
+    df_out = {'twin1': [], 'twin2': [], 'zygosity': [], 'familyID': []}
+    for zyg in zygosity:
+        df_zyg = df_in[df_in['ZygosityGT'] == zyg]
+        family_ids = sorted(set(df_zyg['Family_ID']))
+        for fam_id in family_ids:
+            subjs = df_zyg['Subject'][df_zyg['Family_ID'] == fam_id]
+            subjs = subjs.reset_index(drop=True)
+            assert len(subjs) == 2
+            df_out['twin1'].append(subjs[0])
+            df_out['twin2'].append(subjs[1])
+            df_out['zygosity'].append(zyg)
+            df_out['familyID'].append(fam_id)
+    df_out = pd.DataFrame(df_out)
+
+    if trg_file is not None:
+        assert trg_file.endswith('.csv')
+        df_out.to_csv(trg_file, index=False)
+
+    return df_out
+
+
+def count_twins_id(data):
+    """
+    Count the number of MZ or DZ pairs
+    Parameters
+    ----------
+    data : DataFrame | str
+        twins ID information
+        If is str, it's a CSV file of twins ID information.
+    """
+    if isinstance(data, pd.DataFrame):
+        pass
+    elif isinstance(data, str):
+        data = pd.read_csv(data)
+    else:
+        raise TypeError('The input data must be a DataFrame or str!')
+
+    zygosity = ('MZ', 'DZ')
+    for zyg in zygosity:
+        df_zyg = data[data['zygosity'] == zyg]
+        print(f'The number of {zyg}:', len(df_zyg))
+
+
+def filter_twins_id(data, limit_set, trg_file=None):
+    """
+    The twin pair will be removed as long as anyone of it is not in limit set
+    Parameters
+    ----------
+    data : DataFrame | str
+        twins ID information
+        If is str, it's a CSV file of twins ID information.
+    limit_set : collection
+        a collection of subject IDs
+    trg_file : str, default None
+        If is not None, save filtered twins ID to a file (CSV format)
+    Returns
+    -------
+    data : DataFrame
+        filtered twins ID information
+    """
+    if isinstance(data, pd.DataFrame):
+        data = data.copy()
+    elif isinstance(data, str):
+        data = pd.read_csv(data)
+    else:
+        raise TypeError('The input data must be a DataFrame or str!')
+
+    # filter twins ID
+    for idx in data.index:
+        if (data['twin1'][idx] not in limit_set or
+            data['twin2'][idx] not in limit_set):
+            data.drop(index=idx, inplace=True)
+
+    if trg_file is not None:
+        assert trg_file.endswith('.csv')
+        data.to_csv(trg_file, index=False)
+
+    return data
+
+
+def icc(x, n_permutation=None):
+    '''
+    Calculate intraclass correlation between two squences.
+    Parameters
+    ----------
+    x : array-like, 2D or 3D
+        2D shape: [2, n_sample]
+        3D shape: [2, n_sample, n_features]
+    n_permutation : positive integer
+        If is not None, do permutation with n_permutation times.
+
+    Returns
+    -------
+    r : float
+        intraclass correlation
+        If n_bootstrap is not None, it is the median correlation across all
+        bootstraps.
+    r_lb : float
+        lower boundary of confidence interval
+        Only returned when n_bootstrap is not None.
+    r_ub : float
+        upper boundary of confidence interval
+        Only returned when n_bootstrap is not None.
+
+    References
+    ----------
+    https://github.com/noahbenson/hcp-lines/blob/master/notebooks/hcp-lines.ipynb
+    '''
+
+    assert x.shape[0] == 2
+
+    if n_permutation is not None:
+        r = icc(x)
+        
+        n = x.shape[1]
+        rs = []
+        for i in range(n_permutation):
+            pair_idx = np.arange(n)
+            np.random.shuffle(pair_idx)
+            x_i = copy.deepcopy(x)
+            x_i[0,:] = x[0, pair_idx]
+            rs.append(icc(x_i))
+        
+        rs = np.asarray(rs)
+        
+        return r, rs
+
+# =============================================================================
+#     # ICC Class 3    
+#     mu_t = np.nanmean(x, (0, 1))  
+#     mu_b = np.nanmean(x, axis=0)
+#     mu_w = np.nanmean(x, axis=1)
+#     
+#     ms_b = np.nansum(((mu_b - mu_t)**2) * 2, 0) / (x.shape[1] - 1)
+#     ms_e = (np.nansum((x - mu_t)**2, (0,1)) - 
+#             np.nansum((mu_b - mu_t)**2, (0)) * 2 - 
+#             np.nansum((mu_w - mu_t)**2, (0)) * x.shape[1]) / (x.shape[1] - 1)
+#     
+#     r = (ms_b - ms_e) / (ms_b + ms_e)
+# =============================================================================
+    
+    # ICC Class 1
+    mu_b = np.nanmean(x, axis=0)
+    ms_e = np.nansum((x - mu_b)**2, (0,1)) / x.shape[1]
+    ms_b = np.nanvar(mu_b, axis=0, ddof=1)*2
+    r = (ms_b - ms_e) / (ms_b + ms_e)
+    
+    return r
+
+
+def heritability(mz, dz, n_permutation=None, confidence=[95]):
+    '''
+    heritability(mz, dz) yields Falconer's heritability index, h^2.
+    Parameters
+    ----------
+    mz, dz: array-like, 2D or 3D
+        2D shape: [2, n_sample]
+        23 shape: [2, n_sample, n_features]
+    n_permutation : positive integer
+        If is not None, do permutation with n_permutation times.
+    confidence : a list of number between 0 and 100
+        It is used when n_bootstrap is not None.
+        It determines the single-tail confidence boundary of the bootstrap. For example,
+        [95] indicates the confidance boundary to be 95-percentile values.
+    Returns
+    -------
+    h2 : float
+        heritability
+        If n_bootstrap is not None, it is the median heritability across all
+        bootstraps.
+    h2_lb : float
+        lower boundary of confidence interval
+        Only returned when n_bootstrap is not None.
+    h2_ub : float
+        upper boundary of confidence interval
+        Only returned when n_bootstrap is not None.
+        
+    References
+    ----------
+    https://github.com/noahbenson/hcp-lines/blob/master/notebooks/hcp-lines.ipynb
+    '''
+    if n_permutation is None:
+        r_mz = icc(mz)
+        r_dz = icc(dz)
+        h2 = 2 * (r_mz - r_dz)
+        return h2
+    
+    else:
+        r_mz, rs_mz = icc(mz, n_permutation=n_permutation)
+        r_dz, rs_dz = icc(dz, n_permutation=n_permutation)
+        h2 = 2 * (r_mz - r_dz)
+        h2s = 2 * (rs_mz - rs_dz)
+
+        conf_boundaries = {conf: np.percentile(h2s, conf, axis=0) for conf in confidence}
+        return conf_boundaries, h2

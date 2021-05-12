@@ -10,11 +10,13 @@ import copy
 import cb_tools
 from pygam import LinearGAM
 import subprocess
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
 
 # %%
 # set results path
 results_dir = '/nfs/s2/userhome/liuxingyu/workingdir/cerebellum_grad_dev'
-index = 't1wT2wRatio'  # ['t1wT2wRatio', 'fALFF']
+index = 'fALFF'  # ['t1wT2wRatio', 'fALFF']
 
 #%% get cerebellum mask
 atlas_dir = os.path.join(os.getcwd(), 'atlas')
@@ -182,22 +184,39 @@ for i, yi in enumerate(y):
     gam = LinearGAM(n_splines=20).gridsearch(data[x].values[...,None]/12, data[yi].values)
     xx = gam.generate_X_grid(term=0, n=500)
         
+    print(gam.summary())
+        
     axes[i].plot(xx, gam.predict(xx), '--', color='seagreen')
     axes[i].plot(xx, gam.prediction_intervals(xx, width=.95), color='mediumaquamarine', ls='--', alpha=0.5)
     axes[i].scatter(data_g.index, data_g[yi], c='seagreen', s=15, marker='D')
     
     axes[i].set_xticks(np.arange(8, 23, 2))
     axes[i].set_xlim([7,23])
+    ax.set_xlabel('Age in years')
     axes[i].tick_params(colors='gray', which='both')
     [axes[i].spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
     
-    # if yi == 'a':
-    #     axes[i].set_yticks(np.arange(0.02, 1, 0.02))
+    if index == 'fALFF' and yi == 'a':
+        axes[i].set_yticks(np.arange(-0.003, 0.0001, 0.001))
     if yi == 'p1':
         axes[i].set_yticks([-2, -1,0,1 ,2])
         axes[i].set_yticklabels(['VI', 'CrusI', 'CrusII', 'VIIb', 'VIIIa'])
         axes[i].set_ylim([-2,2])    
         axes[i].invert_yaxis()
+
+# %% stats results
+stats_results = pd.DataFrame(dev.columns[:-num_str_col].values, columns=['lobule'])
+
+for lobule in stats_results['lobule']:
+    X = dev['Age in months'] / 12
+    y = dev[lobule]
+    
+    X = sm.add_constant(X)
+    model = sm.OLS(y, X)
+    fit = model.fit()
+    
+    stats_results.loc[stats_results['lobule']==lobule, ['coef', 'R2-adj', 'F', 'p']] = [
+        fit.params[-1], fit.rsquared_adj, fit.fvalue, fit.f_pvalue]             
 
 # %% Fig 1/2 G
 # dev trojetory for each lobule
@@ -218,7 +237,7 @@ ax.set_xticks(np.arange(8, 23, 2))
 if index == 't1wT2wRatio':
     ax.set_yticks(np.arange(1.6, 2.3, 0.2))
 elif index == 'fALFF':
-    ax.set_yticks(np.arange(0.09, 0.17, 0.02))
+    ax.set_yticks(np.arange(0.1, 0.16, 0.02))
 ax.tick_params(colors='gray', which='both')
 [ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
 plt.tight_layout()
@@ -246,6 +265,7 @@ linear_coef = linear_fit(data, num_str_col)
 k = linear_coef['k']
 pct = linear_coef['k'] / linear_coef['b']
 plt.bar(lobues_name, pct*100, color=palette_cb)
+plt.xlabel('annual change (%)')
 
 # %% Fig 1/2 I
 # save nifti files, plot by SUIT in matlab
@@ -279,3 +299,5 @@ elif index == 'fALFF':
 # =======================
 # plot by suit in matlab
 # =======================
+
+
