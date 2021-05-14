@@ -71,22 +71,15 @@ mz_func, dz_func = twins_select(data_falff, dem_herit, num_str_col)
 
 #%%
 # plot
-bound_anat, h2_anat = cb_tools.heritability(mz_anat, dz_anat, n_permutation=1000, confidence=[95])
-h2_anat_df = pd.DataFrame(h2_anat[None,...], columns=atlas.label_info['lobule'][:18:2].values)
+h2_anat, perct_anat = cb_tools.heritability(mz_anat, dz_anat, n_permutation=10000)
+h2_anat_df = pd.DataFrame(h2_anat[None,...], collumns=atlas.label_info['lobule'][:18:2].values)
 h2_anat_df = h2_anat_df.stack().reset_index(-1, name='h2')
 
-bound_func, h2_func = cb_tools.heritability(mz_func, dz_func, n_permutation=1000, confidence=[95])
+h2_func, perct_func = cb_tools.heritability(mz_func, dz_func, n_permutation=10000)
 h2_func_df = pd.DataFrame(h2_func[None,...], columns=atlas.label_info['lobule'][:18:2].values)
 h2_func_df = h2_func_df.stack().reset_index(-1, name='h2')
 
 h2_df = [h2_anat_df, h2_func_df]
-
-# sig
-sig_anat = np.array(['n.a.']*h2_anat.shape[0])
-sig_anat[(h2_anat-bound_anat[95]) >= 0] = '*'
-
-sig_func = np.array(['n.a.']*h2_func.shape[0])
-sig_func[(h2_func-bound_func[95]) >= 0] = '*'
 
 # plot
 fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(5, 3.3))

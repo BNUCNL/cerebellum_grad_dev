@@ -55,6 +55,19 @@ sub_df = pd.DataFrame(sub, columns=['Sub'])
 data_t1wT2wRatio_coup = data_t1wT2wRatio.merge(sub_df, on='Sub', how='inner')
 data_falff_coup = data_falff.merge(sub_df, on='Sub', how='inner')
 
+# %% plot Fig 3A
+dev_coup = np.asarray([stats.pearsonr(data_t1wT2wRatio_coup[col], data_falff_coup[col])
+                       for col in data_t1wT2wRatio_coup.columns[:-num_str_col]])
+# isc
+isc_df = pd.DataFrame(np.c_[dev_coup[:,0], data_falff_coup.columns[:-num_str_col]], columns=['coup', 'roi']) 
+fig, ax = plt.subplots(figsize=(4, 4.5))
+sns.barplot(x='coup', y='roi', palette=palette_cb, linewidth=1, data=isc_df, ax=ax)
+
+ax.tick_params(colors='gray', which='both')
+[ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
+ax.set_xlim(-0.3, 0.1)
+plt.tight_layout()
+
 # %%
 def isc(data1, data2=None):
 
@@ -91,7 +104,7 @@ def isc(data1, data2=None):
 
     return corr
 
-# %% plot development of gradient coupling 
+# %% plot fig 2i
 coup = isc(data_t1wT2wRatio_coup.iloc[:,:-num_str_col], data_falff_coup.iloc[:,:-num_str_col])
 coup = pd.DataFrame(coup, columns=['coup'])
 coup = pd.concat((coup, data_t1wT2wRatio_coup.iloc[:,-num_str_col:]), axis=1)
@@ -126,44 +139,6 @@ ax.tick_params(colors='gray', which='both')
     
 plt.tight_layout()
 
-# %%
-def isfc(data1, data2):
-    from scipy.spatial.distance import cdist
-
-    """Cal functional connectivity between data1 and data2.
-
-    Parameters
-    ----------
-        data1: used to calculate functional connectivity,
-            shape = [n_samples1, n_features].
-        data2: used to calculate functional connectivity,
-            shape = [n_samples2, n_features].
-
-    Returns
-    -------
-        isfc: functional connectivity map of data1 and data2,
-            shape = [n_samples1, n_samples2].
-
-    Notes
-    -----
-        1. data1 and data2 should both be 2-dimensional.
-        2. n_features should be the same in data1 and data2.
-    """
-
-    corr = np.nan_to_num(1 - cdist(data1, data2, metric='correlation'))
-    return corr
-
-# %% plot Fig 3A
-dev_coup = isfc(data_t1wT2wRatio_coup.iloc[:,:-num_str_col].values.T,
-                data_falff_coup.iloc[:,:-num_str_col].values.T)
-# isc
-isc_df = pd.DataFrame(np.c_[np.diag(dev_coup) , data_falff_coup.columns[:-num_str_col]], columns=['coup', 'roi']) 
-fig, ax = plt.subplots(figsize=(3.5, 4.5))
-sns.barplot(x='coup', y='roi', palette=palette_cb, linewidth=1, data=isc_df, ax=ax)
-
-ax.tick_params(colors='gray', which='both')
-[ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
-plt.tight_layout()
 
 # %% plot Fig 3B
 # isfc

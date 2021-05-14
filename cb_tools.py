@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from nibabel.cifti2 import cifti2
 import copy
+from scipy import stats
 
 #%%
 class CiftiReader(object):
@@ -536,14 +537,6 @@ def icc(x, n_permutation=None):
     -------
     r : float
         intraclass correlation
-        If n_bootstrap is not None, it is the median correlation across all
-        bootstraps.
-    r_lb : float
-        lower boundary of confidence interval
-        Only returned when n_bootstrap is not None.
-    r_ub : float
-        upper boundary of confidence interval
-        Only returned when n_bootstrap is not None.
 
     References
     ----------
@@ -591,7 +584,7 @@ def icc(x, n_permutation=None):
     return r
 
 
-def heritability(mz, dz, n_permutation=None, confidence=[95]):
+def heritability(mz, dz, n_permutation=None):
     '''
     heritability(mz, dz) yields Falconer's heritability index, h^2.
     Parameters
@@ -609,19 +602,15 @@ def heritability(mz, dz, n_permutation=None, confidence=[95]):
     -------
     h2 : float
         heritability
-        If n_bootstrap is not None, it is the median heritability across all
-        bootstraps.
-    h2_lb : float
-        lower boundary of confidence interval
-        Only returned when n_bootstrap is not None.
-    h2_ub : float
-        upper boundary of confidence interval
+    percentile : float
+        the percentile of h2 in the distribution of all permutations.
         Only returned when n_bootstrap is not None.
         
     References
     ----------
     https://github.com/noahbenson/hcp-lines/blob/master/notebooks/hcp-lines.ipynb
     '''
+
     if n_permutation is None:
         r_mz = icc(mz)
         r_dz = icc(dz)
@@ -634,5 +623,5 @@ def heritability(mz, dz, n_permutation=None, confidence=[95]):
         h2 = 2 * (r_mz - r_dz)
         h2s = 2 * (rs_mz - rs_dz)
 
-        conf_boundaries = {conf: np.percentile(h2s, conf, axis=0) for conf in confidence}
-        return conf_boundaries, h2
+        percentile = [stats.percentileofscore(h2s[:,i], h2[i]) for i in range(len(h2))]
+        return h2, percentile

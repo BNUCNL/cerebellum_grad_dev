@@ -11,7 +11,8 @@ import cb_tools
 from pygam import LinearGAM
 import subprocess
 import statsmodels.api as sm
-import statsmodels.formula.api as smf
+from statsmodels.formula.api import ols
+from statsmodels.stats import anova
 
 # %%
 # set results path
@@ -54,31 +55,7 @@ data_adult_voxel[~cb_mask] = 0
 #
 palette_cb = sns.diverging_palette(230,230, l=80, center='dark', n=len(atlas.label_info['lobule'][:18:2]))
 
-# %% Fig 1/2 B
-# violin plot of cb lobules
-data = copy.deepcopy(data_adult_roi)
-
-data.loc[:,data.columns[:-num_str_col]] = cb_tools.thr_IQR(
-    data.loc[:,data.columns[:-num_str_col]].values, times=1.5, series=True)  # remove outliers outside 1.5 IQR
-
-data_stack = pd.melt(data, id_vars=data.columns[-num_str_col:], 
-                     var_name=['lobule'], value_vars=data.columns[:-num_str_col], value_name=index)
-data_stack = pd.concat([data_stack, data_stack['lobule'].str.split('_',expand=True).rename(columns={0:'roi',1:'hemi'})], axis=1)
-
-# plot
-row = 'roi'
-value = index
-row_order = atlas.label_info['lobule'][:18:2]
-
-fig, ax = plt.subplots(figsize=(3, 3.5))
-sns.violinplot(x=value, y=row, palette=palette_cb, order=row_order, fliersize=1,
-                    cut=0, bw=.2, whis=3, linewidth=1, data=data_stack, ax=ax)
-
-ax.tick_params(colors='gray', which='both')
-[ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
-plt.tight_layout()
-
-# %% Fig 1/2 C
+# %% Fig. 1d & Fig. 2c
 # 3d plot for cerebellum 
 data = copy.deepcopy(data_adult_voxel) 
 colormap = 'viridis'
@@ -126,9 +103,40 @@ dev = hemi_merging(data_dev_roi, num_str_col)
 adult = hemi_merging(data_adult_roi, num_str_col)
 lobues_name = atlas.label_info['lobule'][:18:2]
 
-# %% Fig 1/2 D
+# %% Fig. 1c and Fig. 2b
+# violin plot of cb lobules
+data = copy.deepcopy(adult)
+
+# threshold
+data.loc[:,data.columns[:-num_str_col]] = cb_tools.thr_IQR(
+    data.loc[:,data.columns[:-num_str_col]].values, times=1.5, series=True)  # remove outliers outside 1.5 IQR
+data = data.dropna()
+
+# data stack
+data_stack = pd.melt(data, id_vars=data.columns[-num_str_col:], 
+                     var_name=['lobule'], value_vars=data.columns[:-num_str_col], value_name=index)
+data_stack = pd.concat([data_stack, data_stack['lobule'].str.split('_',expand=True).rename(columns={0:'roi',1:'hemi'})], axis=1)
+
+# plot
+row = 'roi'
+value = index
+row_order = atlas.label_info['lobule'][:18:2]
+
+fig, ax = plt.subplots(figsize=(3, 3.5))
+sns.violinplot(x=value, y=row, palette=palette_cb, order=row_order, fliersize=1,
+                    cut=0, bw=.2, whis=3, linewidth=1, data=data_stack, ax=ax)
+
+ax.tick_params(colors='gray', which='both')
+[ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
+plt.tight_layout()
+
+# stats
+gradient_stats = anova.AnovaRM(data=data_stack, depvar=index, subject='Sub', within=['roi']).fit()
+print(gradient_stats.anova_table)
+
+# %% Fig 1e
 # average gradient in children and adults groups
-dev_child = dev[dev['Age in years']<20]
+dev_child = dev[dev['Age_in_years']<20]
 dev_mean = np.nanmean(cb_tools.thr_IQR(dev_child.loc[:,dev_child.columns[:-num_str_col]].values, times=1.5, series=True), 0)
 adult_mean = np.nanmean(cb_tools.thr_IQR(adult.loc[:,adult.columns[:-num_str_col]].values, times=1.5, series=True), 0)
 
@@ -150,86 +158,21 @@ elif index == 'fALFF':
     plt.ylim([0.08, 0.16])
 plt.legend()
 
-# %% Fig 1/2 E, F
-# dev trojetory of curvature and extreme point
-
-# quantratic fit
-def gradient_magnitude(x):
-    polyfit = np.asarray([np.polyfit(np.arange(x.shape[-1]) - (x.shape[-1]-1)/2, 
-                                     x.iloc[i, :].to_numpy(dtype=float), deg=2) for i in range(x.shape[0])])
-    polyfit_df = pd.DataFrame(polyfit, columns=['a','b','c'])
-    polyfit_df['p1'] = -polyfit_df['b']/(2*polyfit_df['a'])
-    
-    return polyfit_df
-
-# get curvature and extreme point
-data = copy.deepcopy(dev)
-
-shape = gradient_magnitude(data.iloc[:,:-num_str_col])
-shape = pd.concat((shape, data.iloc[:,-num_str_col:]), axis=1)
-
-data = copy.deepcopy(shape)
-data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values, times=3, series=True) # remove outliers
-data.dropna(inplace=True)
-data_g = data.groupby(['Age in years']).mean().loc[:, data.columns[:-num_str_col]]
-
-# plot dev trajactory
-x = 'Age in months'
-y = ['a', 'p1']
-_, axes = plt.subplots(nrows=1, ncols=2, figsize=[8,3.3])  
-plt.subplots_adjust(bottom=0.2, wspace=0.3)
-for i, yi in enumerate(y):
-
-    sns.scatterplot(data[x]/12, data[yi], s=10, color='mediumaquamarine', ax=axes[i])
-    gam = LinearGAM(n_splines=20).gridsearch(data[x].values[...,None]/12, data[yi].values)
-    xx = gam.generate_X_grid(term=0, n=500)
-        
-    print(gam.summary())
-        
-    axes[i].plot(xx, gam.predict(xx), '--', color='seagreen')
-    axes[i].plot(xx, gam.prediction_intervals(xx, width=.95), color='mediumaquamarine', ls='--', alpha=0.5)
-    axes[i].scatter(data_g.index, data_g[yi], c='seagreen', s=15, marker='D')
-    
-    axes[i].set_xticks(np.arange(8, 23, 2))
-    axes[i].set_xlim([7,23])
-    ax.set_xlabel('Age in years')
-    axes[i].tick_params(colors='gray', which='both')
-    [axes[i].spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
-    
-    if index == 'fALFF' and yi == 'a':
-        axes[i].set_yticks(np.arange(-0.003, 0.0001, 0.001))
-    if yi == 'p1':
-        axes[i].set_yticks([-2, -1,0,1 ,2])
-        axes[i].set_yticklabels(['VI', 'CrusI', 'CrusII', 'VIIb', 'VIIIa'])
-        axes[i].set_ylim([-2,2])    
-        axes[i].invert_yaxis()
-
-# %% stats results
-stats_results = pd.DataFrame(dev.columns[:-num_str_col].values, columns=['lobule'])
-
-for lobule in stats_results['lobule']:
-    X = dev['Age in months'] / 12
-    y = dev[lobule]
-    
-    X = sm.add_constant(X)
-    model = sm.OLS(y, X)
-    fit = model.fit()
-    
-    stats_results.loc[stats_results['lobule']==lobule, ['coef', 'R2-adj', 'F', 'p']] = [
-        fit.params[-1], fit.rsquared_adj, fit.fvalue, fit.f_pvalue]             
-
-# %% Fig 1/2 G
+# %% Fig 1f & fig. 2d
 # dev trojetory for each lobule
-order = 1
-
 data = copy.deepcopy(dev)
 data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values, times=1.5, series=True)
-data_g = data.groupby(['Age in years']).mean().loc[:, data.columns[:-num_str_col]]
+data_g = data.groupby(['Age_in_years']).mean().loc[:, data.columns[:-num_str_col]]
 
+# data stack
+data_stack = pd.melt(data, id_vars=data.columns[-num_str_col:], 
+                     var_name=['lobule'], value_vars=data.columns[:-num_str_col], value_name=index)
+data_stack = pd.concat([data_stack, data_stack['lobule'].str.split('_',expand=True).rename(columns={0:'roi',1:'hemi'})], axis=1)
+
+# plot
 sns.set_palette(palette_cb)
-
 _, ax = plt.subplots(figsize=[4,3])   
-[sns.regplot(data['Age in months'] / 12, data[i], order=order, scatter=False, line_kws={'lw':1}) for i in data.columns[:-num_str_col]]
+[sns.regplot(data['Age_in_months'] / 12, data[i], scatter=False, line_kws={'lw':1}) for i in data.columns[:-num_str_col]]
 [sns.scatterplot(data_g.index, data_g[i], s=10, marker='D') for i in data_g.columns]
 
 ax.set_xlim([7,23])
@@ -241,6 +184,72 @@ elif index == 'fALFF':
 ax.tick_params(colors='gray', which='both')
 [ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
 plt.tight_layout()
+   
+# stats
+model = ols(f'{index} ~ C(Age_groups)*C(roi)', data=data_stack).fit()
+print(sm.stats.anova_lm(model, typ=2))
+
+
+# %% Fig 1h & 2e
+# dev trojetory of curvature
+# quantratic fit
+def gradient_magnitude(x):
+    polyfit = np.asarray([np.polyfit(np.arange(x.shape[-1]) - (x.shape[-1]-1)/2, 
+                                     x.iloc[i, :].to_numpy(dtype=float), deg=2) for i in range(x.shape[0])])
+    polyfit_df = pd.DataFrame(polyfit, columns=['a','b','c'])
+    polyfit_df['p1'] = -polyfit_df['b']/(2*polyfit_df['a'])
+    
+    return polyfit_df
+
+# get curvature
+data = copy.deepcopy(dev)
+
+shape = gradient_magnitude(data.iloc[:,:-num_str_col])
+shape = pd.concat((shape, data.iloc[:,-num_str_col:]), axis=1)
+
+data = copy.deepcopy(shape)
+data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values, times=3, series=True) # remove outliers
+data.dropna(inplace=True)
+data_g = data.groupby(['Age_in_years']).mean().loc[:, data.columns[:-num_str_col]]
+
+# plot dev trajactory - gam
+x = 'Age_in_months'
+y = 'a'
+_, ax = plt.subplots(figsize=[5,3.3])
+
+sns.scatterplot(data[x]/12, data[y], s=10, color='mediumaquamarine', ax=ax)
+gam = LinearGAM(n_splines=20).gridsearch(data[x].values[...,None]/12, data[y].values)
+xx = gam.generate_X_grid(term=0, n=500)
+print(gam.summary())
+        
+ax.plot(xx, gam.predict(xx), '--', color='seagreen')
+ax.plot(xx, gam.prediction_intervals(xx, width=.95), color='mediumaquamarine', ls='--', alpha=0.5)
+ax.scatter(data_g.index, data_g[y], c='seagreen', s=15, marker='D')
+
+ax.set_xticks(np.arange(8, 23, 2))
+ax.set_xlim([7,23])
+ax.set_xlabel('Age_in_years')
+ax.tick_params(colors='gray', which='both')
+[ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
+
+if index == 'fALFF':
+    ax.set_yticks(np.arange(-0.003, 0.0001, 0.001))
+
+# plot dev trajactory - linear model
+x = 'Age_in_months'
+y = 'a'
+_, ax = plt.subplots(figsize=[5,3.3])    
+sns.regplot(data[x]/12, data[y], color='seagreen', ax=ax, scatter_kws={'s':10, 'color':'mediumaquamarine'})
+ax.set_xticks(np.arange(8, 23, 2))
+ax.set_xlim([7,23])
+ax.set_xlabel('Age_in_years')
+ax.tick_params(colors='gray', which='both')
+[ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
+plt.tight_layout()
+
+# stats
+model = ols('a ~ Age_in_months', data=data).fit()
+print(model.summary())       
 
 # %% k 
 def linear_fit(data, num_str_col):
@@ -249,7 +258,7 @@ def linear_fit(data, num_str_col):
     nan_voxel = np.isnan(data[data.columns[:-num_str_col]]).sum(0)>len(data)*0.5
     data.loc[:, np.r_[nan_voxel, np.zeros(num_str_col).astype(np.bool)]] = 0
     
-    x = 'Age in months'
+    x = 'Age_in_months'
     y = data.columns[:-num_str_col]
     
     order = 1
@@ -259,13 +268,27 @@ def linear_fit(data, num_str_col):
     
     return polyfit_df
 
-# %% Fig 1/2 H
+# %% Fig 1g & fig 2f
 data = copy.deepcopy(dev)
 linear_coef = linear_fit(data, num_str_col)
 k = linear_coef['k']
 pct = linear_coef['k'] / linear_coef['b']
 plt.bar(lobues_name, pct*100, color=palette_cb)
 plt.xlabel('annual change (%)')
+
+# stats
+# linear regression
+stats_results = pd.DataFrame(dev.columns[:-num_str_col].values, columns=['lobule'])
+for lobule in stats_results['lobule']:
+    X = dev['Age_in_months'] / 12
+    y = dev[lobule]
+    
+    X = sm.add_constant(X)
+    model = sm.OLS(y, X)
+    fit = model.fit()
+    
+    stats_results.loc[stats_results['lobule']==lobule, ['coef', 'R2-adj', 'F', 'p']] = [
+        fit.params[-1], fit.rsquared_adj, fit.fvalue, fit.f_pvalue]   
 
 # %% Fig 1/2 I
 # save nifti files, plot by SUIT in matlab
