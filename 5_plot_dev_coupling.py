@@ -50,12 +50,12 @@ def inner_sub(dataframe_list):
     return list(sub)       
     
 #sub = inner_sub([data_ml, data_alff, sub_adult])
-sub = inner_sub([data_t1wT2wRatio.query('`Age in years` < 22'), data_falff.query('`Age in years` < 22')])
+sub = inner_sub([data_t1wT2wRatio.query('`Age_in_years` < 22'), data_falff.query('`Age_in_years` < 22')])
 sub_df = pd.DataFrame(sub, columns=['Sub'])
 data_t1wT2wRatio_coup = data_t1wT2wRatio.merge(sub_df, on='Sub', how='inner')
 data_falff_coup = data_falff.merge(sub_df, on='Sub', how='inner')
 
-# %% plot Fig 3A
+# %% plot Fig 2h
 dev_coup = np.asarray([stats.pearsonr(data_t1wT2wRatio_coup[col], data_falff_coup[col])
                        for col in data_t1wT2wRatio_coup.columns[:-num_str_col]])
 # isc
@@ -113,10 +113,10 @@ coup = pd.concat((coup, data_t1wT2wRatio_coup.iloc[:,-num_str_col:]), axis=1)
 data = copy.deepcopy(coup)
 data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values, times=3, series=True) # remove outliers
 data.dropna(inplace=True)
-data_g = data.groupby(['Age in years']).mean().loc[:, data.columns[:-num_str_col]]
+data_g = data.groupby(['Age_in_years']).mean().loc[:, data.columns[:-num_str_col]]
 
 # plot dev trajactory
-x = 'Age in months'
+x = 'Age_in_months'
 y = 'coup'
 _, ax = plt.subplots(nrows=1, ncols=1, figsize=[5,3.3])  
 
@@ -132,7 +132,7 @@ ax.scatter(data_g.index, data_g[y], c='seagreen', s=15, marker='D')
     
 ax.set_xticks(np.arange(8, 23, 2))
 ax.set_xlim([7,22])
-ax.set_xlabel('Age in years')
+ax.set_xlabel('Age_in_years')
 ax.set_ylabel('corr coef')
 ax.tick_params(colors='gray', which='both')
 [ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
@@ -140,7 +140,7 @@ ax.tick_params(colors='gray', which='both')
 plt.tight_layout()
 
 
-# %% plot Fig 3B
+# %% plot Fig 2h
 # isfc
 r2 = dev_coup ** 2
 

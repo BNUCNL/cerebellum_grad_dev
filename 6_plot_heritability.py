@@ -64,15 +64,13 @@ def twins_select(data_herit, dem_herit, num_str_col):
     
     return mz, dz
 
-#%%
-# calculate h2
+#%% fig 1j
+# calculate h2 - lobule-wise
 mz_anat, dz_anat = twins_select(data_t1wT2wRatio, dem_herit, num_str_col)
 mz_func, dz_func = twins_select(data_falff, dem_herit, num_str_col)
 
-#%%
-# plot
 h2_anat, perct_anat = cb_tools.heritability(mz_anat, dz_anat, n_permutation=10000)
-h2_anat_df = pd.DataFrame(h2_anat[None,...], collumns=atlas.label_info['lobule'][:18:2].values)
+h2_anat_df = pd.DataFrame(h2_anat[None,...], columns=atlas.label_info['lobule'][:18:2].values)
 h2_anat_df = h2_anat_df.stack().reset_index(-1, name='h2')
 
 h2_func, perct_func = cb_tools.heritability(mz_func, dz_func, n_permutation=10000)
@@ -91,3 +89,30 @@ for i in range(2):
 #
     [axes[i].spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
 plt.tight_layout()
+
+
+#%% 
+# calculate h2 - curvature
+def gradient_magnitude(x):
+    polyfit = np.asarray([np.polyfit(np.arange(x.shape[-1]) - (x.shape[-1]-1)/2, 
+                                     x.iloc[i, :].to_numpy(dtype=float), deg=2) for i in range(x.shape[0])])
+    polyfit_df = pd.DataFrame(polyfit, columns=['a','b','c'])
+    polyfit_df['p1'] = -polyfit_df['b']/(2*polyfit_df['a'])
+    
+    return polyfit_df
+
+# get curvature
+a_anat = gradient_magnitude(data_t1wT2wRatio.iloc[:,:-num_str_col])['a']
+a_anat = pd.concat((a_anat, data_t1wT2wRatio.iloc[:,-num_str_col:]), axis=1)
+
+mz_anat_a, dz_anat_a = twins_select(a_anat, dem_herit, num_str_col)
+h2_anat_a, perct_anat_a = cb_tools.heritability(mz_anat_a, dz_anat_a, n_permutation=10000)
+print(f'h2 of curvature: {h2_anat_a[0]}; p = {(100-perct_anat_a[0]) / 100}')
+
+
+a_func = gradient_magnitude(data_falff.iloc[:,:-num_str_col])['a']
+a_func = pd.concat((a_func, data_falff.iloc[:,-num_str_col:]), axis=1)
+
+mz_func_a, dz_func_a = twins_select(a_func, dem_herit, num_str_col)
+h2_func_a, perct_func_a = cb_tools.heritability(mz_func_a, dz_func_a, n_permutation=10000)
+print(f'h2 of curvature: {h2_func_a[0]}; p = {(100-perct_func_a[0]) / 100}')

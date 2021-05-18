@@ -101,7 +101,7 @@ def hemi_merging(x, num_str_col):
 
 dev = hemi_merging(data_dev_roi, num_str_col)
 adult = hemi_merging(data_adult_roi, num_str_col)
-lobues_name = atlas.label_info['lobule'][:18:2]
+lobule_name = atlas.label_info['lobule'][:18:2]
 
 # %% Fig. 1c and Fig. 2b
 # violin plot of cb lobules
@@ -148,10 +148,10 @@ dev_coef = np.polyfit(x, dev_mean, deg=2)
 dev_y_fit = np.polyval(dev_coef, x)
 
 # plot
-plt.plot(lobues_name, adult_y_fit, c='seagreen', label='adult')
-plt.bar(lobues_name, adult_mean, color='seagreen', alpha=0.8)
-plt.plot(lobues_name, dev_y_fit, c='palegreen', ls='--', label='child')
-plt.bar(lobues_name, dev_mean, color='palegreen', alpha=0.5)
+plt.plot(lobule_name, adult_y_fit, c='seagreen', label='adult')
+plt.bar(lobule_name, adult_mean, color='seagreen', alpha=0.8)
+plt.plot(lobule_name, dev_y_fit, c='palegreen', ls='--', label='child')
+plt.bar(lobule_name, dev_mean, color='palegreen', alpha=0.5)
 if index == 't1wT2wRatio':
     plt.ylim([1.5, 2.3])
 elif index == 'fALFF':
@@ -172,8 +172,8 @@ data_stack = pd.concat([data_stack, data_stack['lobule'].str.split('_',expand=Tr
 # plot
 sns.set_palette(palette_cb)
 _, ax = plt.subplots(figsize=[4,3])   
-[sns.regplot(data['Age_in_months'] / 12, data[i], scatter=False, line_kws={'lw':1}) for i in data.columns[:-num_str_col]]
-[sns.scatterplot(data_g.index, data_g[i], s=10, marker='D') for i in data_g.columns]
+[sns.regplot(x=data['Age_in_months'] / 12, y=data[i], scatter=False, line_kws={'lw':1}) for i in data.columns[:-num_str_col]]
+[sns.scatterplot(x=data_g.index, y=data_g[i], s=10, marker='D') for i in data_g.columns]
 
 ax.set_xlim([7,23])
 ax.set_xticks(np.arange(8, 23, 2))
@@ -183,6 +183,7 @@ elif index == 'fALFF':
     ax.set_yticks(np.arange(0.1, 0.16, 0.02))
 ax.tick_params(colors='gray', which='both')
 [ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
+ax.set_xlabel('Age_in_years')
 plt.tight_layout()
    
 # stats
@@ -208,7 +209,7 @@ shape = gradient_magnitude(data.iloc[:,:-num_str_col])
 shape = pd.concat((shape, data.iloc[:,-num_str_col:]), axis=1)
 
 data = copy.deepcopy(shape)
-data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values, times=3, series=True) # remove outliers
+data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values, times=1.5, series=True) # remove outliers
 data.dropna(inplace=True)
 data_g = data.groupby(['Age_in_years']).mean().loc[:, data.columns[:-num_str_col]]
 
@@ -234,6 +235,7 @@ ax.tick_params(colors='gray', which='both')
 
 if index == 'fALFF':
     ax.set_yticks(np.arange(-0.003, 0.0001, 0.001))
+plt.tight_layout()
 
 # plot dev trajactory - linear model
 x = 'Age_in_months'
@@ -249,13 +251,14 @@ plt.tight_layout()
 
 # stats
 model = ols('a ~ Age_in_months', data=data).fit()
-print(model.summary())       
+print(model.summary())
+print('annual rate of change(%): {0}'.format(model.params['Age_in_months'] *12 * 100 / model.params['Intercept']))   
 
 # %% k 
 def linear_fit(data, num_str_col):
     
     data[data.columns[:-num_str_col]] = cb_tools.thr_IQR(data[data.columns[:-num_str_col]].values.T, times=1.5, series=True).T
-    nan_voxel = np.isnan(data[data.columns[:-num_str_col]]).sum(0)>len(data)*0.5
+    nan_voxel = np.isnan(data[data.columns[:-num_str_col]]).sum(0)>len(data)*0.3
     data.loc[:, np.r_[nan_voxel, np.zeros(num_str_col).astype(np.bool)]] = 0
     
     x = 'Age_in_months'
@@ -263,7 +266,7 @@ def linear_fit(data, num_str_col):
     
     order = 1
     polyfit = np.asarray([np.polyfit(data.loc[~np.isnan(data[y_i]), x] / 12, data.loc[~np.isnan(data[y_i]), y_i], deg=order) for y_i in y])
-    polyfit[np.isnan(data[data.columns[:-num_str_col]].values).sum(0)>0.3*(len(data)-num_str_col)] = np.nan
+    polyfit[np.isnan(data[data.columns[:-num_str_col]]).sum(0)>(len(data)*0.3-num_str_col)] = np.nan
     polyfit_df = pd.DataFrame(polyfit, columns=['k','b'])
     
     return polyfit_df
@@ -272,16 +275,21 @@ def linear_fit(data, num_str_col):
 data = copy.deepcopy(dev)
 linear_coef = linear_fit(data, num_str_col)
 k = linear_coef['k']
-pct = linear_coef['k'] / linear_coef['b']
-plt.bar(lobues_name, pct*100, color=palette_cb)
-plt.xlabel('annual change (%)')
+pct = linear_coef['k'] / linear_coef['b'] * 100
+
+# plot
+_, ax = plt.subplots(figsize=[2,3])
+ax.bar(lobule_name, pct, color=palette_cb)
+ax.set_ylabel('annual change (%)')
+ax.tick_params(colors='gray', which='both')
+[ax.spines[k].set_color('darkgray') for k in ['top','bottom','left','right']]
 
 # stats
 # linear regression
-stats_results = pd.DataFrame(dev.columns[:-num_str_col].values, columns=['lobule'])
+stats_results = pd.DataFrame(data.columns[:-num_str_col].values, columns=['lobule'])
 for lobule in stats_results['lobule']:
-    X = dev['Age_in_months'] / 12
-    y = dev[lobule]
+    X = data['Age_in_months'] / 12
+    y = data[lobule]
     
     X = sm.add_constant(X)
     model = sm.OLS(y, X)
@@ -289,13 +297,15 @@ for lobule in stats_results['lobule']:
     
     stats_results.loc[stats_results['lobule']==lobule, ['coef', 'R2-adj', 'F', 'p']] = [
         fit.params[-1], fit.rsquared_adj, fit.fvalue, fit.f_pvalue]   
+    
+print(stats_results)
 
 # %% Fig 1/2 I
 # save nifti files, plot by SUIT in matlab
 data = copy.deepcopy(data_dev_voxel)
 linear_coef = linear_fit(data, num_str_col)
 k = linear_coef['k']
-pct = linear_coef['k'] / linear_coef['b']
+pct = linear_coef['k'] / linear_coef['b'] *100
 
 to_save = {'k':k, 'pct':pct}
 
