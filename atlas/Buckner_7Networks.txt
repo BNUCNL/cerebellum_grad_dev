@@ -1,0 +1,8 @@
+key	name	color	1012
+1	1-vis	120 18 134	1013
+2	2-somatomotor	70 130 180	1014
+3	3-dorsalatt	0 118 14	1015
+4	4-ventralatt	196 58 250	1016
+5	5-limbic	220 248 164	1017
+6	6-frontoparietal	230 148 34	1018
+7	7-default	205 62 78	1019
